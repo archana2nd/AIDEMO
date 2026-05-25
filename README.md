@@ -95,25 +95,25 @@ Jira ticket is now READY TO DEV ✅
 
 ```
 READY TO DO
-    ↓ (manual — developer picks up ticket)
+    ↓ (developer picks up ticket)
 IN PROGRESS          ← agent sets this when branch is created
-    ↓ (manual — developer codes)
+
 READY TO DEV         ← agent sets this when PR raised to develop
-    ↓ (manual — QA tests)
-TESTING DEV
-    ↓ (manual)
+
+TESTING DEV          ← agent sets this when PR merged to develop
+    
 READY TO PREP        ← agent sets this when PR raised to prerelease/*
-    ↓ (manual — QA tests)
-TESTING QA (PREP)
-    ↓ (manual)
+
+TESTING QA (PREP)    ← agent sets this when PR merged to prerelease/*
+   
 READY TO STAG        ← agent sets this when PR raised to release/*
-    ↓ (manual — UAT)
-TESTING UAT (STAG)
-    ↓ (manual)
-READY TO PROD        ← agent sets this when PR raised to main/master
-    ↓ (manual)
-DONE / CLOSED
-```
+    
+TESTING UAT (STAG)  ← agent sets this when PR merged to release/*
+
+READY TO PROD       ← agent sets this when PR raised to main/master
+   
+DONE / CLOSED       ←  (manual)
+
 
 Agent updates are automatic. Everything else is manual.
 
@@ -175,7 +175,7 @@ JIRA_BASE_URL=https://your-domain.atlassian.net
 JIRA_EMAIL=you@example.com
 JIRA_API_TOKEN=your-jira-api-token
 
-# Optional (Groq LLM)
+# Groq LLM
 GROQ_API_KEY=your-groq-api-key
 GROQ_MODEL=llama3-8b-8192
 
@@ -185,25 +185,6 @@ JIRA_ASSIGNEE_EMAILS=dev1@example.com,dev2@example.com
 
 If you'd rather not use a `.env` file, set the same variables in your shell environment before running the agent.
 
-
-### For Demo (GitHub + Personal Jira)
-
-```python
-GITHUB_TOKEN = "your-github-pat"
-GITHUB_OWNER = "your-github-username"
-GITHUB_REPO  = "your-repo-name"
-
-JIRA_BASE_URL  = "https://your-name.atlassian.net"
-JIRA_EMAIL     = "your.personal@gmail.com"
-JIRA_API_TOKEN = "your-jira-token"
-
-JIRA_ASSIGNEE_EMAILS = ""   # empty = update all tickets
-```
-
-JIRA_ASSIGNEE_EMAILS = "dev1@cognizant.com,dev2@cognizant.com"
-```
-
----
 
 ## How to Get Credentials
 
@@ -217,6 +198,9 @@ JIRA_ASSIGNEE_EMAILS = "dev1@cognizant.com,dev2@cognizant.com"
 2. Create API token → give it a name (e.g. `jira-pr-agent`)
 3. Copy the token immediately (shown only once)
 
+### Groq api Key (Run AI models through API)
+1. Create account and create api key here https://console.groq.com/keys
+
 ### Jira Base URL
 Your Jira URL visible in the browser:
 - Personal Jira: `https://your-name.atlassian.net`
@@ -224,6 +208,21 @@ Your Jira URL visible in the browser:
 
 ### Jira Status Names
 Go to your Jira board → Board settings → Columns — copy the exact status names into `config.py`. They are case sensitive.
+
+## Groq LLM (Makes localhost public)
+1. Install nggrok - https://ngrok.com/download
+2. Create account - https://dashboard.ngrok.com/signup
+3. Generate/copy ngrok auth token - https://dashboard.ngrok.com/get-started/your-authtoken
+4. Add your Authtoken to the ngrok agent - 
+Run command - ngrok config add-authtoken $YOUR_AUTHTOKEN
+5. Expose local port - ngrok http 3000
+6. Copy generated public ngrok URL - You’ll get URL like: https://abc123.ngrok-free.app
+7. Open GitHub Repo - Repository → Settings → Webhooks → Add webhook →  In Payload URL → Paste: https://abc123.ngrok-free.app/webhook
+8. Content Type - Choose:application/json
+9. Select webhook events (usually Push event)
+10. Save webhook
+11. Push code chnages to GitHub repository
+12. Receive webhook payload in local server terminal
 
 ---
 
@@ -235,6 +234,8 @@ pip3 install -r requirements.txt
 
 # 2. Edit config.py with your credentials
 
+# 3. expose server - ngrok http 3000
+
 # 3. Run
 python3 webhook_server.py
 ```
@@ -243,5 +244,5 @@ python3 webhook_server.py
 ## Limitations
 
 - **In-memory tracker** — if the agent restarts, it re-evaluates all branches and PRs. Safe because Jira transitions are idempotent (moving to the same status twice is harmless).
-- **5 minute delay** — not real-time. For real-time, a webhook-based approach is needed.
+
 - **Jira workflow restrictions** — the agent can only make transitions that your Jira workflow allows. If a transition isn't available, it logs a warning and skips.
