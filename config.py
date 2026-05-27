@@ -1,19 +1,9 @@
 """
 Jira PR Status Agent — Configuration
-Edit the values below to match your setup.
+Edit the values below or set via .env file.
 """
 
 import os
-
-
-def _parse_map(raw: str) -> list:
-    """Parse 'branch:status,branch:status' into list of (branch, status) tuples."""
-    result = []
-    for entry in raw.split(","):
-        if ":" in entry:
-            branch, status = entry.strip().split(":", 1)
-            result.append((branch.strip(), status.strip()))
-    return result
 
 
 class Config:
@@ -36,29 +26,15 @@ class Config:
     }
 
     # ── Branch prefixes that trigger IN PROGRESS on branch creation ────────
+    # Only branches starting with these prefixes are watched.
     BRANCH_PREFIXES = ["feature", "bugfix", "hotfix"]
 
     # ── Status set when a watched branch is created ────────────────────────
+    # This is the only static rule — branch creation always means IN PROGRESS.
     STATUS_IN_PROGRESS = "In Progress"
 
-    # ── Groq LLM settings ─────────────────────────────────────────────────
+    # ── Groq LLM ───────────────────────────────────────────────────────────
     # Free API — sign up at https://console.groq.com
-    # Get your key at https://console.groq.com/keys
+    # All PR transition decisions are made by the LLM — no static maps.
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL   = os.getenv("GROQ_MODEL",   "llama-3.1-8b-instant")  # fast and free
-
-    # ── Fallback static maps (used when Groq is unavailable) ──────────────
-    PR_OPENED_MAP = _parse_map(
-        "develop:READY TO DEV,"
-        "prerelease/:READY TO PREP,"
-        "release/:READY TO STAG,"
-        "main:READY TO PROD"
-    )
-
-    PR_MERGED_MAP = _parse_map(
-        "develop:TESTING DEV,"
-        "prerelease/:TESTING QA (PREP),"
-        "release/:TESTING UAT,"
-        "main:DONE / CLOSED"
-    )
-
+    GROQ_MODEL   = os.getenv("GROQ_MODEL",   "llama-3.1-8b-instant")
