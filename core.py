@@ -1,18 +1,3 @@
-"""
-Jira PR Status Agent — RAG Enhanced with Groq
-    GitHub → Jira status sync via webhook-driven processing.
-
-Uses Groq (free cloud LLM) to intelligently decide:
-  - Whether a transition should happen
-  - Which Jira status to transition to
-
-Falls back to static mapping if Groq is unavailable.
-
-Triggers:
-  - Branch created (feature/bugfix/hotfix) → IN PROGRESS
-  - PR opened to configured target branch  → LLM decides status
-  - PR merged to configured target branch  → LLM decides status
-"""
 
 from __future__ import annotations
 
@@ -24,13 +9,14 @@ from requests.auth import HTTPBasicAuth
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Load .env located next to this script (works even when cwd is different)
+# Load .env before importing Config, so environment variables are available 
 env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
 # Import `Config` after loading .env so `os.getenv` sees the values
 from config import Config
 
+# Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -45,14 +31,12 @@ log = logging.getLogger(__name__)
 
 JIRA_KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]+-\d+)\b")
 
-
+# Extract all Jira ticket keys from a string.
 def extract_ticket_keys(text: str) -> list:
-    """Extract all Jira ticket keys from a string."""
     return list(dict.fromkeys(JIRA_KEY_RE.findall(text or "")))
 
 
 def resolve_status_static(target_branch: str, status_map: list) -> str | None:
-    """Fallback static status lookup from config map."""
     log.debug("resolve_status_static: target_branch='%s', status_map=%s", target_branch, status_map)
     for pattern, status in status_map:
         if pattern.endswith("/"):
@@ -74,16 +58,14 @@ def is_watched_branch(branch_name: str) -> bool:
         for prefix in Config.BRANCH_PREFIXES
     )
 
-
-def is_allowed_assignee(email: str | None) -> bool:
-    """Return True if email is in the allowed list, or no filter is set."""
+# Return True if email is in the allowed list, or no filter is set.
+def is_allowed_assignee(email: str | None) -> bool:  
     if not Config.JIRA_ASSIGNEE_EMAILS:
         return True
     return (email or "").lower() in Config.JIRA_ASSIGNEE_EMAILS
 
-
-def is_draft_or_wip_pr(pr: dict) -> bool:
-    """Return True if the PR is a draft or the title contains WIP keywords."""
+# Return True if the PR is a draft or the title contains WIP keywords.
+def is_draft_or_wip_pr(pr: dict) -> bool:    
     title = pr.get("title", "") or ""
     draft_flag = pr.get("draft", False)
     if draft_flag:
@@ -95,39 +77,22 @@ def is_draft_or_wip_pr(pr: dict) -> bool:
 # Groq LLM client
 # ---------------------------------------------------------------------------
 
+#Client for Groq LLM to decide Jira transitions based on PR context.
 class GroqClient:
-    """
-    Cloud LLM client using Groq (free tier).
-    Sends context about a PR and Jira ticket and asks the LLM
-    to decide whether to transition and to which status.
-
-    Sign up at https://console.groq.com
-    Models: llama3-8b-8192 (fast), llama3-70b-8192 (smarter)
-    """
 
     API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-    def __init__(self):
+    # Load API key and model from config
+    def __init__(self):        
         self.api_key = Config.GROQ_API_KEY
         self.model   = Config.GROQ_MODEL
 
-    def is_available(self) -> bool:
-        """Check if Groq API key is configured."""
+    #Check if Groq API key is configured.
+    def is_available(self) -> bool:       
         return bool(self.api_key)
 
+    #Ask Groq LLM to decide whether to transition a Jira ticket.
     def decide_transition(self, context: dict) -> dict:
-        """
-        Ask the LLM to decide whether to transition a Jira ticket and to what status.
-
-        context dict contains:
-          - pr_title, pr_description, pr_draft, pr_labels
-          - pr_review_state, target_branch, event (opened/merged)
-          - ticket_key, ticket_type, ticket_priority, ticket_current_status
-          - available_transitions (list of valid Jira status names)
-
-        Returns:
-          { "should_transition": bool, "target_status": str, "reason": str }
-        """
         prompt = f"""You are a Jira workflow automation agent. Based on the context below, decide whether to transition a Jira ticket and to which status.
 
 ## Context
@@ -137,7 +102,6 @@ class GroqClient:
 **PR Description:** {context['pr_description'] or 'No description'}
 **PR Draft:** {context['pr_draft']}
 **PR Labels:** {', '.join(context['pr_labels']) or 'None'}
-**PR Review State:** {context['pr_review_state']}
 **Target Branch (where PR merges to):** {context['target_branch']}
 
 **Jira Ticket:** {context['ticket_key']}
@@ -190,11 +154,11 @@ Respond ONLY with a valid JSON object, no explanation, no markdown:
                 return result
 
         except requests.HTTPError as exc:
-            log.warning("Groq API error: %s — falling back to static map", exc)
+            log.warning("Groq API error: %s — No transition", exc)
         except json.JSONDecodeError:
-            log.warning("Groq returned invalid JSON — falling back to static map")
+            log.warning("Groq returned invalid JSON — No transition")
         except Exception as exc:
-            log.warning("Groq error: %s — falling back to static map", exc)
+            log.warning("Groq error: %s — no transition", exc)
 
         return {"should_transition": False, "target_status": "", "reason": "LLM unavailable"}
 
@@ -206,6 +170,7 @@ Respond ONLY with a valid JSON object, no explanation, no markdown:
 class GitHubClient:
     BASE = "https://api.github.com"
 
+#   Load GitHub token and owner/repo from config
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update({
@@ -216,35 +181,21 @@ class GitHubClient:
         self.owner = Config.GITHUB_OWNER
         self.repo  = Config.GITHUB_REPO
 
+#   Get list of branches in the repository.
     def get_branches(self) -> list:
         url  = f"{self.BASE}/repos/{self.owner}/{self.repo}/branches"
         resp = self.session.get(url, params={"per_page": 100})
         resp.raise_for_status()
         return [b["name"] for b in resp.json()]
 
+#   Get detailed info for a specific PR.
     def get_pr_details(self, pr_number: int) -> dict:
-        """Fetch full PR details including reviews and labels."""
         # Basic PR info
         url  = f"{self.BASE}/repos/{self.owner}/{self.repo}/pulls/{pr_number}"
         resp = self.session.get(url)
         resp.raise_for_status()
         pr = resp.json()
 
-        # Reviews
-        review_url  = f"{self.BASE}/repos/{self.owner}/{self.repo}/pulls/{pr_number}/reviews"
-        review_resp = self.session.get(review_url)
-        reviews     = review_resp.json() if review_resp.ok else []
-
-        # Determine overall review state
-        review_state = "no reviews"
-        if reviews:
-            states = [r["state"] for r in reviews]
-            if "CHANGES_REQUESTED" in states:
-                review_state = "changes requested"
-            elif "APPROVED" in states:
-                review_state = "approved"
-            else:
-                review_state = "pending"
 
         return {
             "id":            pr["number"],
@@ -254,10 +205,10 @@ class GitHubClient:
             "target_branch": pr["base"]["ref"],
             "draft":         pr.get("draft", False),
             "labels":        [l["name"] for l in pr.get("labels", [])],
-            "review_state":  review_state,
             "merged":        pr.get("merged_at") is not None,
         }
 
+#   Get list of open/closed PRs with basic info.
     def _list_prs(self, state: str) -> list:
         url  = f"{self.BASE}/repos/{self.owner}/{self.repo}/pulls"
         resp = self.session.get(url, params={"state": state, "per_page": 100})
@@ -284,6 +235,7 @@ class GitHubClient:
 # Jira client
 # ---------------------------------------------------------------------------
 
+# Client for Jira REST API to get ticket context and perform transitions.
 class JiraClient:
     def __init__(self):
         self.auth    = HTTPBasicAuth(Config.JIRA_EMAIL, Config.JIRA_API_TOKEN)
@@ -298,8 +250,8 @@ class JiraClient:
         resp.raise_for_status()
         return resp.json()
 
+# Get full ticket context for LLM prompt in a single API call.
     def get_full_context(self, key: str) -> dict | None:
-        """Return full ticket context for LLM prompt in a single API call."""
         issue = self.get_issue(key)
         if not issue:
             return None
@@ -319,12 +271,12 @@ class JiraClient:
         resp.raise_for_status()
         return resp.json().get("transitions", [])
 
+# Get list of available transition status names for a Jira issue.
     def get_transition_names(self, key: str) -> list:
-        """Return list of available transition status names."""
         return [t["to"]["name"] for t in self.get_transitions(key)]
 
+# Transition a Jira issue to the named status.
     def transition_issue(self, key: str, target_status: str) -> bool:
-        """Transition a Jira issue to the named status."""
         transitions = self.get_transitions(key)
         match = next(
             (t for t in transitions if t["to"]["name"].lower() == target_status.lower()),
@@ -384,12 +336,9 @@ llm     = GroqClient()
 # Core logic
 # ---------------------------------------------------------------------------
 
+# Core functions to handle PR events and branch creation, using GitHub/Jira clients and Groq LLM for decisions.
 def handle_pr_event(pr_id: int, event: str):
-    """
-    Handle a PR event (opened or merged) using LLM to decide the transition.
-    Falls back to static map if Groq is unavailable.
-    """
-    # Fetch full PR details including reviews and labels
+    # Fetch full PR details 
     pr = github.get_pr_details(pr_id)
 
     # Skip draft/WIP PRs immediately before any transition logic or LLM call.
@@ -452,6 +401,7 @@ def handle_pr_event(pr_id: int, event: str):
             }
             log.debug("LLM context: %s", context)
 
+            # Call Groq LLM to decide whether to transition and to which status
             decision = llm.decide_transition(context)
 
             if not decision.get("should_transition"):
@@ -466,24 +416,12 @@ def handle_pr_event(pr_id: int, event: str):
             log.info("LLM decision for %s: → '%s' | Reason: %s", key, target_status, decision.get("reason"))
             jira.transition_issue(key, target_status)
 
-        # ── Static fallback ──────────────────────────────────────────────
         else:
-            log.info("Groq not configured — using static map for PR #%s", pr_id)
-            status_map = Config.PR_OPENED_MAP if event == "opened" else Config.PR_MERGED_MAP
-            status     = resolve_status_static(pr["target_branch"], status_map)
-            if not status:
-                log.debug("PR #%s: target '%s' not in static map — skipping", pr_id, pr["target_branch"])
-                continue
-            log.info("PR #%s %s → '%s' | %s → '%s'", pr_id, event, pr["target_branch"], key, status)
-            jira.transition_issue(key, status)
+            log.info("Groq not configured")
 
 
+# Core function to handle branch creation - no LLM needed, uses static rules.
 def process_branch(branch_name: str):
-    """
-    When a new feature/bugfix/hotfix branch is created,
-    move the linked Jira ticket to IN PROGRESS.
-    Branch creation always uses static rule — no LLM needed.
-    """
     if tracker.has_seen_branch(branch_name):
         return
     tracker.mark_branch(branch_name)

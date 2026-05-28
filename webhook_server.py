@@ -1,5 +1,5 @@
+from __future__ import annotations
 
-import os
 import logging
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
@@ -17,7 +17,7 @@ from core import (
 
 app = Flask(__name__)
 
-
+# GitHub webhook endpoint 
 @app.route("/webhook", methods=["POST"])
 def github_webhook():
     event = request.headers.get("X-GitHub-Event")
