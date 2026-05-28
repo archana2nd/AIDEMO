@@ -5,9 +5,9 @@ Edit the values below to match your setup.
 
 import os
 
-
+#  Helper function to parse branch-status mappings from config strings
 def _parse_map(raw: str) -> list:
-    """Parse 'branch:status,branch:status' into list of (branch, status) tuples."""
+    #Read branch and Jira status mappings from a config string.
     result = []
     for entry in raw.split(","):
         if ":" in entry:
@@ -35,19 +35,17 @@ class Config:
         if e.strip()
     }
 
-    # ── Branch prefixes that trigger IN PROGRESS on branch creation ────────
+    # ── Branch prefixes that trigger IN PROGRESS on branch creation 
     BRANCH_PREFIXES = ["feature", "bugfix", "hotfix"]
 
-    # ── Status set when a watched branch is created ────────────────────────
+    # ── Status set when a watched branch is created 
     STATUS_IN_PROGRESS = "In Progress"
 
-    # ── Groq LLM settings ─────────────────────────────────────────────────
-    # Free API — sign up at https://console.groq.com
-    # Get your key at https://console.groq.com/keys
+    # ── Groq LLM ─────────────────────────────────────────────────
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
     GROQ_MODEL   = os.getenv("GROQ_MODEL",   "llama-3.1-8b-instant")  # fast and free
 
-    # ── Fallback static maps (used when Groq is unavailable) ──────────────
+    # ── Branch-to-Jira status mappings ───────────────────────────────────────
     PR_OPENED_MAP = _parse_map(
         "develop:READY TO DEV,"
         "prerelease/:READY TO PREP,"
@@ -59,5 +57,4 @@ class Config:
         "develop:TESTING DEV,"
         "prerelease/:TESTING QA (PREP),"
         "release/:TESTING UAT,"
-        "main:DONE / CLOSED"
     )
